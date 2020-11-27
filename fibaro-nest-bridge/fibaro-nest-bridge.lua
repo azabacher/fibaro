@@ -210,7 +210,7 @@ function updateHeatingThermostatSetpoint(device)
         local HC2 = net.HTTPClient( { timeout = 3000 })
         local url = "https://smartdevicemanagement.googleapis.com/v1/" .. thermostatId .. ":executeCommand"
 
-        HC2:request(url , {
+        HC2:request(url, {
             options = {
                 checkCertificate = true,
                 method = 'POST',

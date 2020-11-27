@@ -21,7 +21,6 @@ end
 
 local nestThermostat = 0 -- Virtual Device Id
 local nestThermostatAmbientTemperatureSensor = 0 -- Virtual Device Id
-
 local heatingPanels = { 0 } -- find your id via /api/panels/heating/
 
 -------------------------------------------------------------------- 
@@ -73,6 +72,15 @@ end
 local function setNestSetpoint(setpoint)
     fibaro:call(nestThermostat, "setProperty", "ui.setpoint.value", setpoint .. " °C")
     Trace("Update Nest setpoint to [" .. setpoint .. "]")
+end
+
+local function setNestMode(mode)
+    if(string.upper(mode) == "HEAT" or string.upper(mode) == "ECO") then        
+        fibaro:call(nestThermostat, "setProperty", "ui.mode.value", mode)
+        Trace("Update Nest mode to [" .. mode .. "]")
+    else
+        Error("Incorrect Nest mode specified [" .. mode .. "]")
+    end
 end
 
 local function setValveSetpoint(valveId, setpoint)
@@ -165,6 +173,9 @@ function updateThermostat()
               -- and open the valves to max (or leave them at the temperature of the heating zone)?
               if (heatingPanelManualModeTemperature > nestSetpointTemperature) then
                   setNestSetpoint(heatingPanelManualModeTemperature)
+                  
+                  setNestMode("Heat") -- make sure we're in heating mode and not Eco
+                  
                   -- 1. get room id from heating zone
                   local heatingPanelRooms = response.properties.rooms -- table
                   Trace("Rooms [" .. json.encode(heatingPanelRooms) .. "] in heating panel [" .. heatingPanelName .. "]")
@@ -197,9 +208,8 @@ function updateThermostat()
         local ecoSetpoint = nestAmbientTemperature - 0.5 
         setNestSetpoint(ecoSetpoint)
                 
-        -- set Nest to Eco mode
-        -- We don't have to set it to Eco mode perse if we lower the temperature
-        fibaro:call(nestThermostat, "setProperty", "ui.mode.value", "Eco")
+        -- optional: set Nest to Eco mode
+        -- setNestMode("Eco")
         
         -- Close all the valves in every heating zone
         -- This should have been done by fibaro already but just to be sure.
@@ -218,7 +228,7 @@ function updateThermostat()
         -- We only want to get a reading from Nest if it's not on Eco or Off
         if(currentNestMode == "HEAT") then
             -- Let's check if someone turned up the heat using the Nest directly
-            if (nestSetpointTemperature > nestAmbientTemperature) then
+            if (nestSetpointTemperature >= nestAmbientTemperature) then
               Debug("Nest is set to heat the room [" .. nestSetpointTemperature .. ":" .. nestAmbientTemperature .. "]")
 
               -- open all the valves so that the entire room can heat up quickly
@@ -226,7 +236,7 @@ function updateThermostat()
                   updateValvesInHeatingZone(heatingPanelId, valveOpenSetpointValue)
               end
             elseif ((nestAmbientTemperature + 0.5) > nestSetpointTemperature) then
-                Debug("We're at or above the desired room temperature [" .. nestSetpointTemperature .. ":" .. nestAmbientTemperature .. "]")
+                Debug("We're above the desired room temperature [" .. nestSetpointTemperature .. ":" .. nestAmbientTemperature .. "]")
                 -- Only close the values when the ambient temperature is 0.5 degrees higher than setpoint
                 -- This gives us a bit of wiggle room and make sure we don't close them too soon
                 for i,heatingPanelId in ipairs(heatingPanels) do
@@ -249,7 +259,7 @@ function mainLoop()
   
   updateThermostat();
   
-  setTimeout(mainLoop, 1 * updateFrequency * 1000) 
+  setTimeout(mainLoop, updateFrequency * 1000) 
 end
 
 mainLoop()
