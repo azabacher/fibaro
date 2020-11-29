@@ -203,7 +203,7 @@ function updateThermostat()
         Error("Manual mode has been disabled in all the heating zones!")
         
         -- let's lower the setpoint to just below current ambient temparture
-        -- so that when it wakes up from eco at a late moment the 
+        -- so that when it wakes up from Eco at a late moment the 
         -- temperature won't be too hight
         local ecoSetpoint = nestAmbientTemperature - 0.5 
         setNestSetpoint(ecoSetpoint)
@@ -235,7 +235,7 @@ function updateThermostat()
               for i,heatingPanelId in ipairs(heatingPanels) do
                   updateValvesInHeatingZone(heatingPanelId, valveOpenSetpointValue)
               end
-            elseif ((nestAmbientTemperature + 0.5) > nestSetpointTemperature) then
+            elseif (nestAmbientTemperature > (nestSetpointTemperature + 0.5)) then
                 Debug("We're above the desired room temperature [" .. nestSetpointTemperature .. ":" .. nestAmbientTemperature .. "]")
                 -- Only close the values when the ambient temperature is 0.5 degrees higher than setpoint
                 -- This gives us a bit of wiggle room and make sure we don't close them too soon
