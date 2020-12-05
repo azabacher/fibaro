@@ -60,21 +60,64 @@ function CustomDebug(color, message)
 end 
 
 function Debug(debugMessage)
-  if ( show_debug ) then
-    CustomDebug( "white", debugMessage);
+  if (show_debug) then
+    CustomDebug("white", debugMessage);
   end
 end
 
 function Trace(debugMessage)
-	if ( show_trace ) then
-		CustomDebug( "orange", debugMessage);
+	if (show_trace) then
+		CustomDebug("orange", debugMessage);
 	end
 end
 
 function Error(debugMessage)
-	if ( show_error ) then
-		CustomDebug( "red", debugMessage);
+	if (show_error) then
+		CustomDebug("red", debugMessage);
 	end
+end
+
+-------------------------------------------------------------------- 
+--------------------- HELPER FUNCTIONS -----------------------------
+
+function convertLabelToTemperature(label)  
+  if (label) then
+    temp, count = label:gsub(" °C", "")
+    
+    if (count > 0) then
+      if(tonumber(temp)) then
+          return(tonumber(temp))
+       else
+          Error("Label is not a number {" .. temp .. "}!")
+          return nil
+       end
+    else
+      Error("Label doesn't contain °C sign {" .. temp .. "}!")
+      return nil
+    end
+  else
+    Error("Label is {nil}!")
+    return nil
+  end
+end
+
+function updateVirtualDeviceNestMode(deviceId, mode)
+  if(tonumber(deviceId) ~= nil and mode ~= nill and
+     (string.upper(mode) == "HEAT" or string.upper(mode) == "ECO" or string.upper(mode) == "OFF")) then
+    updateProperty(deviceId, "ui.mode.value", mode)
+  else
+    Error("Can't update device mode. Invalid argument(s) supplied. {" .. (deviceId and deviceId or "nil") .. "} {" .. (mode and mode or "nil") .. "}")
+  end
+end
+
+-- Updates the property in the specified virtual device
+function updateProperty(deviceId, label, value)
+    if (tonumber(deviceId) ~= nil and label ~= nil and value ~= nil) then
+      fibaro:call(deviceId, "setProperty", label, value)
+      Trace("[Update device " .. deviceId .. " " .. label ..  " ] " .. value)
+    else
+      Error("Can't update device. Invalid argument(s) supplied. {" .. (deviceId and deviceId or "nil") .. "} {" .. label .. "} {" .. value .. "}")
+    end
 end
 
 -------------------------------------------------------------------- 
@@ -101,8 +144,6 @@ function getRefreshToken()
       return
     end
 
-    Debug("[getRefreshToken()] Get Google refresh token")
-
     local HC2 = net.HTTPClient( { timeout = 3000 })
     local url = "https://www.googleapis.com/oauth2/v4/token?client_id=" .. clientId .. "&client_secret=" .. clientSecret .. "&code=" .. authorizationCode .. "&grant_type=authorization_code&redirect_uri=https://www.google.com"
     
@@ -120,10 +161,14 @@ function getRefreshToken()
                 body = json.decode(response.data)
                 accessToken = "Bearer " .. body['access_token']
                 refreshToken = body['refresh_token']
-                Debug("getRefreshToken() succeed")
-                Debug(accessToken .. "   " ..  refreshToken)
+                Debug("AccessToken [" .. accessToken .. "] - RefreshToken [" ..  refreshToken .. "]")
             else
-              Error("getRefreshToken() failed: " .. response.status .. "  " .. json.encode(response.data))
+              Error("getRefreshToken() failed error: " .. response.status)
+              Error("  reported error " .. json.encode(response.data))
+              -- FIXME it seems there is a bug in HTTPClient which truncates the error response
+              -- body = json.decode(response.data)
+              -- Error("  error type " .. body['error'])
+              -- Error("  error message " .. body['error_description'])
               -- FIXME turned this off as getting the refresh token isn't working yet
               -- authorizationCode = nil
             end
@@ -156,8 +201,8 @@ function getAccessToken()
             if response.status == 200 then
                 body = json.decode(response.data)
                 accessToken = "Bearer " .. body['access_token']
-                Debug("getAccessToken() succeed")
-                Trace(accessToken)
+                Debug("getAccessToken() succes")
+                Trace("Access token [" .. accessToken .. "]")
             else
                 Error("getAccessToken() failed: " .. json.encode(response.data))
                 refreshToken = ""
@@ -173,16 +218,10 @@ end
 -------------------------------------------------------------------- 
 --------------------- API CALLS ------------------------------------
 
--- Updates the property in the specified virtual device
-function updateProperty(deviceId, label, value) 
-  fibaro:call(deviceId, "setProperty", label, value)
-  Trace("[Update device " .. deviceId .. " " .. label ..  " ] " .. value)  
-end
-
 -- https://developers.google.com/nest/device-access/api/thermostat#change_the_temperature_setpoints
 function updateHeatingThermostatSetpoint(device)
   if (accessToken == nil or thermostatId == "") then
-    Error("Can't update thermostat setpoint.")
+    Error("Can't update thermostat setpoint. Access Token [" .. (accessToken and accessToken or "nil") .. "] - ThermostatId [" .. thermostatId .. "]")
     return
   end
   
@@ -192,7 +231,7 @@ function updateHeatingThermostatSetpoint(device)
   
   local nestSetpoint = device['traits']['sdm.devices.traits.ThermostatTemperatureSetpoint']['heatCelsius'] .. " °C"
   local desiredSetpoint = fibaro:getValue(thermostatVirtualDeviceId, "ui.setpoint.value")
-  Trace("Setpoints " .. "[P:" .. previousSetpoint .. " D:" .. desiredSetpoint .. " C:" .. nestSetpoint .. "]")
+  Trace("Setpoints " .. "[P:" .. (previousSetpoint and previousSetpoint or "nil") .. " D:" .. (desiredSetpoint and desiredSetpoint or "nil") .. " C:" .. (nestSetpoint and nestSetpoint or "nil")   .. "]")
   
   if (previousSetpoint ~= "") then
     -- on the first run previousSetpoint isn't yet initialized
@@ -204,49 +243,54 @@ function updateHeatingThermostatSetpoint(device)
       if (desiredSetpoint ~= previousSetpoint) then
         -- we've changed the setpoint in fibaro
         -- update the nest setpoint
-        desiredSetpoint = desiredSetpoint:gsub(" °C", "");
-        desiredSetpoint = tonumber(desiredSetpoint)
-      
-        local HC2 = net.HTTPClient( { timeout = 3000 })
-        local url = "https://smartdevicemanagement.googleapis.com/v1/" .. thermostatId .. ":executeCommand"
+        desiredSetpoint = convertLabelToTemperature(desiredSetpoint)        
+        
+        if (desiredSetpoint) then      
+          local HC2 = net.HTTPClient( { timeout = 3000 })
+          local url = "https://smartdevicemanagement.googleapis.com/v1/" .. thermostatId .. ":executeCommand"
 
-        HC2:request(url, {
-            options = {
-                checkCertificate = true,
-                method = 'POST',
-                headers = {
-                     ['Content-Type'] = "application/json; charset=utf-8",
-                     ['Authorization'] = accessToken
-                },
-                data = json.encode({
-                        ['command'] = "sdm.devices.commands.ThermostatTemperatureSetpoint.SetHeat",
-                        ['params'] = {['heatCelsius'] = desiredSetpoint }
-                    })
-            },
-            success = function(response)
-                if response.status == 200 then
-                    Trace("setHeatingThermostatSetpoint() succeed" .. json.encode(response.data))
-                    previousSetpoint = desiredSetpoint .. " °C"
-                    updateProperty(thermostatVirtualDeviceId, "ui.setpoint.value", previousSetpoint)
-                    Debug("Updated temperature setpoint to [" .. previousSetpoint .. "]")
-                else
-                    Error("setHeatingThermostatSetpoint() failed: " .. response.status)
-                    Error("setHeatingThermostatSetpoint() failed: " .. json.encode(response.data))
-                end
-            end,
-            error = function(error)
-                Error("setHeatingThermostatSetpoint() failed: " .. json.encode(error))
-            end
-        })
+          HC2:request(url, {
+              options = {
+                  checkCertificate = true,
+                  method = 'POST',
+                  headers = {
+                       ['Content-Type'] = "application/json; charset=utf-8",
+                       ['Authorization'] = accessToken
+                  },
+                  data = json.encode({
+                          ['command'] = "sdm.devices.commands.ThermostatTemperatureSetpoint.SetHeat",
+                          ['params'] = {['heatCelsius'] = desiredSetpoint }
+                      })
+              },
+              success = function(response)
+                  if response.status == 200 then
+                      Trace("setHeatingThermostatSetpoint() succeed" .. json.encode(response.data))
+                      previousSetpoint = desiredSetpoint .. " °C"
+                      updateProperty(thermostatVirtualDeviceId, "ui.setpoint.value", previousSetpoint)
+                      Debug("Updated temperature setpoint to [" .. previousSetpoint .. "]")
+                  else
+                      Error("setHeatingThermostatSetpoint() failed: " .. response.status)
+                      Error(" reported error: " .. json.encode(response.data))
+                  end
+              end,
+              error = function(error)
+                  Error("setHeatingThermostatSetpoint() failed: " .. json.encode(error))
+              end
+          })
+        else
+          Error("Can't update the thermostat. Invalid desired setpoint.")
+        end
       else
         -- the setpoint has been changed by an external app
         -- update the desired setpoint to match it set by the external app
         nestSetpoint = nestSetpoint:gsub(" °C", "")
         nestSetpoint = string.format("%.1f", nestSetpoint) -- round to 1 digit precision
         nestSetpoint = nestSetpoint .. " °C"
-        updateProperty(thermostatVirtualDeviceId, "ui.setpoint.value", nestSetpoint)
-        previousSetpoint = nestSetpoint
-        Debug("Temperature setpoint updated by an [external app] to [" .. nestSetpoint .. "]")
+        if (nestSetpoint ~= previousSetpoint) then
+            updateProperty(thermostatVirtualDeviceId, "ui.setpoint.value", nestSetpoint)
+            previousSetpoint = nestSetpoint
+            Debug("Temperature setpoint updated by an [external app] to [" .. nestSetpoint .. "]")
+        end
       end
     end
   else
@@ -365,13 +409,13 @@ function updateThermostatMode(device)
             -- the mode has been changed by an external app
             -- update the desired mode to match it set by the external app
             Debug("Nest Mode changed [" .. previousMode .. ">" .. nestMode .. "]")
-            updateProperty(thermostatVirtualDeviceId, "ui.mode.value", nestMode)
+            updateVirtualDeviceNestMode(thermostatVirtualDeviceId, nestMode)
             previousMode = nestMode
             Trace("Nest mode updated by an [external app] to [" .. nestMode .. "]")
         end
       end
     else
-        updateProperty(thermostatVirtualDeviceId, "ui.mode.value", nestMode)
+        updateVirtualDeviceNestMode(thermostatVirtualDeviceId, nestMode)
         previousMode = nestMode
         Trace("Initialized previousMode " .. nestMode)
     end
@@ -381,7 +425,7 @@ function updateSensors(device)
   local ambientTemperature = device['traits']['sdm.devices.traits.Temperature']['ambientTemperatureCelsius']
   ambientTemperature = string.format("%.1f", ambientTemperature)
   updateProperty(ambientTemperatureSensorVirtualDeviceId, "ui.temp.value", ambientTemperature .. " °C")
-    
+
   updateProperty(humiditySensorVirtualDeviceId, "ui.humidity.value", device['traits']['sdm.devices.traits.Humidity']['ambientHumidityPercent'] .. " %")
 end
 
@@ -437,7 +481,7 @@ function mainLoop()
   --get thermostat
   updateThermostatInfo()
     
-  setTimeout(mainLoop, 1 * updateFrequency * 1000) 
+  setTimeout(mainLoop, updateFrequency * 1000) 
 end
 
 mainLoop()

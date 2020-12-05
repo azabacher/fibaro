@@ -87,7 +87,7 @@ local function setValveSetpoint(valveId, setpoint)
     local currentValveSetpoint = tonumber(fibaro:getValue(valveId, "value"))
     if(currentValveSetpoint ~= setpoint) then
         fibaro:call(valveId, "setTargetLevel", setpoint)
-        Debug("Updated valve [" .. valveId .. "] to [" .. setpoint .. "] degrees")
+        Debug("Set valve [" .. valveId .. "] to [" .. setpoint .. "] - Nest [" .. nestAmbientTemperature .. ":" .. nestSetpointTemperature .. "]")
     end
 end
 
@@ -107,7 +107,6 @@ function updateValvesInRooms(rooms, setpointValue)
     -- if their room id matches any of the rooms
     -- and they are of the type com.fibaro.setPoint
     -- set their targetLevel to setpointValue
-    --local HC2 = net.HTTPClient({ timeout = 3000 })
     local response, status, errorCode = api.get("/devices/")
     
     if (status == 200) then
@@ -174,7 +173,7 @@ function updateThermostat()
               if (heatingPanelManualModeTemperature > nestSetpointTemperature) then
                   setNestSetpoint(heatingPanelManualModeTemperature)
                   
-                  setNestMode("Heat") -- make sure we're in heating mode and not Eco
+                  setNestMode("Heat") -- make sure we're in heating mode and not Eco or Off
                   
                   -- 1. get room id from heating zone
                   local heatingPanelRooms = response.properties.rooms -- table
@@ -183,7 +182,6 @@ function updateThermostat()
                   -- 2. update all the valves in the room(s) thare are in this heating zone
                   updateValvesInRooms(heatingPanelRooms, valveOpenSetpointValue)
                   
-                  -- https://forum.fibaro.com/topic/52540-eurotronic-spirit-z-wave-thermostat-valve-opening-percentage-report/
                   Debug("Updating current Nest setpoint [" .. nestSetpointTemperature ..  "] to match manual mode [" .. heatingPanelManualModeTemperature .. "] in heating zone [" .. heatingPanelName .. "]")
               end
           else
@@ -222,21 +220,21 @@ function updateThermostat()
             end
         end
         wasManualModeActiveInPreviousRun = manualModeActive
-    -- Manual mode wasn't running and still isn't but we need to check one more thing.
+    -- Manual Mode wasn't running and still isn't but we need to check one more thing.
     elseif(manualModeActive == false) then
         local currentNestMode = string.upper(fibaro:getValue(nestThermostat, "ui.mode.value"))
         -- We only want to get a reading from Nest if it's not on Eco or Off
         if(currentNestMode == "HEAT") then
             -- Let's check if someone turned up the heat using the Nest directly
             if (nestSetpointTemperature >= nestAmbientTemperature) then
-              Debug("Nest is set to heat the room [" .. nestSetpointTemperature .. ":" .. nestAmbientTemperature .. "]")
+              Trace("Nest is set to heat the room [" .. nestSetpointTemperature .. ":" .. nestAmbientTemperature .. "]")
 
               -- open all the valves so that the entire room can heat up quickly
               for i,heatingPanelId in ipairs(heatingPanels) do
                   updateValvesInHeatingZone(heatingPanelId, valveOpenSetpointValue)
               end
             elseif (nestAmbientTemperature > (nestSetpointTemperature + 0.5)) then
-                Debug("We're above the desired room temperature [" .. nestSetpointTemperature .. ":" .. nestAmbientTemperature .. "]")
+                Trace("We're above the desired room temperature [" .. nestSetpointTemperature .. ":" .. nestAmbientTemperature .. "]")
                 -- Only close the values when the ambient temperature is 0.5 degrees higher than setpoint
                 -- This gives us a bit of wiggle room and make sure we don't close them too soon
                 for i,heatingPanelId in ipairs(heatingPanels) do
