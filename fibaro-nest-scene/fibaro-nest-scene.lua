@@ -7,6 +7,7 @@ Use it completely at your own risk! If your Nest gets stuck at
 TODO
 * Allow the temperature to be set through changing it directly on the valve
 
+%% autostart
 %% properties
 %% events
 %% globals

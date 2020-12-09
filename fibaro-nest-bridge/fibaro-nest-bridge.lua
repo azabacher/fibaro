@@ -3,36 +3,31 @@ This code is inspired by:
 https://github.com/GuillaumeWaignier/fibaro/tree/master/quickApp/NestThermostat
 https://github.com/GuillaumeWaignier/fibaro/blob/master/quickApp/NestThermostat/quickApp.lua
 
+%% autostart
 %% properties
 %% events
 %% globals
 --]]
 
 if (fibaro:countScenes() > 1) then
-	fibaro:debug("Scene already active! Aborting this new instance !!");
-	fibaro:abort();
+	fibaro:debug("Scene already active! Aborting this new instance !!")
+	fibaro:abort()
 end
 
 --------------------- USER SETTINGS --------------------------------
 --------------------- SET THESE BEFORE FIRST RUN -------------------
 
-local projectId = "";
-local clientId = "";
-local clientSecret = "";
-local authorizationCode = "";
--- TODO this should be a global variable?
--- FIXME why can't refresh token be empty on the first run??
--- Could it be that once you've generated the refresh token via the 
--- command line via CURL you can't invoke the "grant_type=authorization_code"
--- command again as it will return the "invalid_grant" error?
--- So once the refresh token has been provided for a specific
--- authorizationCode you can't ask for the refresh token ever again?
+local projectId = ""
+local clientId = ""
+local clientSecret = ""
 local refreshToken = ""
+-- Make sure you capture the refresh token on your first run!
+-- If you don't and try to get it again you'll get a 400 error.
+-- https://stackoverflow.com/questions/10576386/invalid-grant-trying-to-get-oauth-token-from-google#comment114665251_10576386
 
 local ambientTemperatureSensorVirtualDeviceId = 0
 local humiditySensorVirtualDeviceId = 0
 local thermostatVirtualDeviceId = 0
-
 
 -------------------------------------------------------------------- 
 --------------------- ADVANCED SETTINGS ----------------------------
@@ -123,72 +118,14 @@ end
 -------------------------------------------------------------------- 
 --------------------- AUTHENTICATION -------------------------------
 
--- Send a mail to request a new a new Refresh Token
-function sendMailForRefreshToken()
-    if authorizationCode ~= nil or refreshToken ~= "" then
-        return
-    end
-
-    Error("Need to refresh Nest Authorization Code")
-   
-    local url = "https://nestservices.google.com/partnerconnections/" .. projectId .. "/auth?redirect_uri=https://www.google.com&access_type=offline&prompt=consent&client_id=" .. clientId .. "&response_type=code&scope=https://www.googleapis.com/auth/sdm.service"
-
-		-- FIXME mail isn't sent somehow
-    fibaro:call (2, "sendEmail", "Fibaro request link to google Nest", url)
-
-  	Error("[Authorization Code] Open this link to generate a new code: " .. url)
-end
-
-function getRefreshToken()
-    if authorizationCode == nil or refreshToken ~= "" then
-      return
-    end
-
-    local HC2 = net.HTTPClient( { timeout = 3000 })
-    local url = "https://www.googleapis.com/oauth2/v4/token?client_id=" .. clientId .. "&client_secret=" .. clientSecret .. "&code=" .. authorizationCode .. "&grant_type=authorization_code&redirect_uri=https://www.google.com"
-    
-    Debug("[Refresh Token] " .. url)
-  
-  	HC2:request(url, {
-        options = {
-           checkCertificate = true,
-           method = 'POST',
-           headers = {},
-           data = nil
-        },
-        success = function(response)
-            if response.status == 200 then
-                body = json.decode(response.data)
-                accessToken = "Bearer " .. body['access_token']
-                refreshToken = body['refresh_token']
-                Debug("AccessToken [" .. accessToken .. "] - RefreshToken [" ..  refreshToken .. "]")
-            else
-              Error("getRefreshToken() failed error: " .. response.status)
-              Error("  reported error " .. json.encode(response.data))
-              -- FIXME it seems there is a bug in HTTPClient which truncates the error response
-              -- body = json.decode(response.data)
-              -- Error("  error type " .. body['error'])
-              -- Error("  error message " .. body['error_description'])
-              -- FIXME turned this off as getting the refresh token isn't working yet
-              -- authorizationCode = nil
-            end
-        end,
-        error = function(error)
-            Error("getRefreshToken() failed: " .. json.encode(error))
-            -- FIXME turned this off as getting the refresh token isn't working yet
-            -- authorizationCode = nil
-        end
-    })
-end
-
 function getAccessToken()
-    if refreshToken == "" or accessToken ~= nil then
+    if accessToken ~= nil then
       return
     end
 
-    local HC2 = net.HTTPClient({ timeout = 3000 })
+    local HC2 = net.HTTPClient({ timeout = 5000 })
     local url = "https://www.googleapis.com/oauth2/v4/token?client_id=" .. clientId .. "&client_secret=" .. clientSecret .. "&refresh_token=" .. refreshToken .. "&grant_type=refresh_token"
-    Trace("[Access Token] " .. url)
+    Trace("Getting a fresh Access Token via: " .. url)
     
   	HC2:request(url , {
         options = {
@@ -201,16 +138,19 @@ function getAccessToken()
             if response.status == 200 then
                 body = json.decode(response.data)
                 accessToken = "Bearer " .. body['access_token']
-                Debug("getAccessToken() succes")
-                Trace("Access token [" .. accessToken .. "]")
+                Debug("getAccessToken(): Succes!")
+                Trace("New Access Token {" .. accessToken .. "}")
             else
-                Error("getAccessToken() failed: " .. json.encode(response.data))
-                refreshToken = ""
+                Error("getAccessToken() failed: " .. response.status)
+                Error("  error message: " .. json.encode(response.data))
+                -- FIXME Report the error message via email?
+                -- We want to know if the refresh token is still valid.
+                -- If it we can't do any future API calls and need to manually fix things.
             end
         end,
         error = function(error)
             Error("getAccessToken() failed: " .. json.encode(error))
-            refreshToken = ""
+            -- FIXME Send email with error message?
         end
     })
 end
@@ -221,7 +161,7 @@ end
 -- https://developers.google.com/nest/device-access/api/thermostat#change_the_temperature_setpoints
 function updateHeatingThermostatSetpoint(device)
   if (accessToken == nil or thermostatId == "") then
-    Error("Can't update thermostat setpoint. Access Token [" .. (accessToken and accessToken or "nil") .. "] - ThermostatId [" .. thermostatId .. "]")
+    Error("Can't update thermostat setpoint. Access Token {" .. (accessToken and accessToken or "nil") .. "} - ThermostatId {" .. thermostatId .. "}")
     return
   end
   
@@ -246,7 +186,7 @@ function updateHeatingThermostatSetpoint(device)
         desiredSetpoint = convertLabelToTemperature(desiredSetpoint)        
         
         if (desiredSetpoint) then      
-          local HC2 = net.HTTPClient( { timeout = 3000 })
+          local HC2 = net.HTTPClient( { timeout = 5000 })
           local url = "https://smartdevicemanagement.googleapis.com/v1/" .. thermostatId .. ":executeCommand"
 
           HC2:request(url, {
@@ -314,11 +254,11 @@ function setThermostatMode(mode)
     else
         -- https://developers.google.com/nest/device-access/api/thermostat#standard_modes
         nestCommand = "sdm.devices.commands.ThermostatMode.SetMode"
-    end
+    end    
     
+    local HC2 = net.HTTPClient( { timeout = 5000 })
+    local url = "https://smartdevicemanagement.googleapis.com/v1/" .. thermostatId .. ":executeCommand"
     
-    local HC2 = net.HTTPClient( { timeout = 3000 })
-    local url = "https://smartdevicemanagement.googleapis.com/v1/" .. thermostatId .. ":executeCommand"    
     HC2:request(url , {
       options = {
           checkCertificate = true,
@@ -337,7 +277,8 @@ function setThermostatMode(mode)
               previousMode = mode
               Trace("setThermostatMode() succeed: " .. json.encode(response.data))
           else
-              Error("setThermostatMode() failed: " .. json.encode(response.data))
+              Error("setThermostatMode() failed: " .. response.status)
+              Error("  error message: " .. json.encode(response.data))
           end
       end,
       error = function(error)
@@ -361,7 +302,7 @@ function findNestMode(device)
     elseif thermostatMode == "OFF" then
         return "Off"
     else
-        Error("[updateMode() failed] Unknown mode " .. thermostatMode .. " / " .. thermostatModeEco)
+        Error("Nest is an unknown mode " .. thermostatMode .. " / " .. thermostatModeEco)
         return "Unknown"
     end
 end
@@ -431,13 +372,13 @@ end
 
 function updateThermostatInfo()
     if accessToken == nil then
-	    Error("Can't update thermostat. Access Token is empty.")
+	    Error("updateThermostatInfo(): Can't update thermostat. Access Token is empty.")
       return
     end
     
-    local HC2 = net.HTTPClient({ timeout = 3000 })
+    local HC2 = net.HTTPClient({ timeout = 5000 })
     local url = "https://smartdevicemanagement.googleapis.com/v1/enterprises/" .. projectId .. "/devices"
-    Trace("[updateThermostatInfo] " .. url)
+    Trace("updateThermostatInfo(): " .. url)
     
     HC2:request(url, { 
         options = {
@@ -455,12 +396,14 @@ function updateThermostatInfo()
                 findThermostat(body)
                 Trace("updateThermostatInfo() succeed: " .. json.encode(response.data))
             else
-                Error("updateThermostatInfo() failed: " .. json.encode(response.data))
+                Error("updateThermostatInfo() failed: " .. response.status)
+                Error("  error message: " .. json.encode(response.data))
                 accessToken = nil
             end
         end,
         error = function(error)
-            Error("updateThermostatInfo() failed: " .. json.encode(error))
+            Error("updateThermostatInfo() failed")
+            Error("  HTTP error: " .. error)
             accessToken = nil
         end
     })
@@ -469,17 +412,15 @@ end
 
 function mainLoop()
 
-  --login
-  sendMailForRefreshToken()
-  getRefreshToken()
-  
-  -- FIXME getAccessToken() will return before the HTTP call has finished
-  -- meaning that on the first run the access token won't be set yet
-  -- not a deal breaker but would be nice to fix
-  getAccessToken()
-  
-  --get thermostat
-  updateThermostatInfo()
+  if (clientId ~= "" and clientSecret ~= "" and refreshToken ~= "" and projectId ~= "") then
+    -- get a valid access token
+    getAccessToken()
+
+    --get thermostat
+    updateThermostatInfo()
+  else
+    Error("Can't proceed: Invalid credentials! ClientId {" .. clientId .. "} ClientSecret {" .. clientSecret .. "} Refresh Token {" .. refreshToken .. "} Project Id {" .. projectId.. "}")    
+  end
     
   setTimeout(mainLoop, updateFrequency * 1000) 
 end
