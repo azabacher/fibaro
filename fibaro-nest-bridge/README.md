@@ -1,5 +1,3 @@
-This code is based on the work done by [Guillaume Waignier](https://github.com/GuillaumeWaignier/fibaro/tree/master/quickApp/NestThermostat). He did most of the heavy lifting. Thanks!
-
 ## What does this do?
 Allows you to control your Nest Thermostat from within your Home Center.
 
@@ -61,3 +59,7 @@ Change the temperature setpoint using the virual device and see if the change is
 * No support for multiple Nest thermostats
 * When the refresh token becomes invalid (eg. revoked by the user) 
 * I'm sure there are other issues as well
+
+## Acknowledgements
+
+This code is based on the work done by [Guillaume Waignier](https://github.com/GuillaumeWaignier/fibaro/tree/master/quickApp/NestThermostat). He did most of the heavy lifting. Thanks!

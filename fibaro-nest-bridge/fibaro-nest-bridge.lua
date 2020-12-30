@@ -115,6 +115,20 @@ function updateProperty(deviceId, label, value)
     end
 end
 
+-- https://cloud.google.com/apis/design/errors
+function handleApiError(response)  
+  if response.status == 401 then
+    -- UNAUTHENTICATED
+    Error("Nest API Error: " .. response.status .. " : UNAUTHENTICATED")    
+  elseif response.status == 500 then
+    -- DATA_LOSS, UNKNOWN, INTERNAL
+    Error("Nest API Error: " .. response.status .. " : UNAUTHENTICATED")    
+  else
+    Error("Nest API Error: " .. response.status .. " : UNDEFINED")    
+  end
+  Error("  error message: " .. json.encode(response.data))
+end
+
 -------------------------------------------------------------------- 
 --------------------- AUTHENTICATION -------------------------------
 
@@ -141,8 +155,8 @@ function getAccessToken()
                 Debug("getAccessToken(): Succes!")
                 Trace("New Access Token {" .. accessToken .. "}")
             else
-                Error("getAccessToken() failed: " .. response.status)
-                Error("  error message: " .. json.encode(response.data))
+              Error("getAccessToken() failed")
+              handleApiError(response)
                 -- FIXME Report the error message via email?
                 -- We want to know if the refresh token is still valid.
                 -- If it we can't do any future API calls and need to manually fix things.
@@ -209,8 +223,8 @@ function updateHeatingThermostatSetpoint(device)
                       updateProperty(thermostatVirtualDeviceId, "ui.setpoint.value", previousSetpoint)
                       Debug("Updated temperature setpoint to [" .. previousSetpoint .. "]")
                   else
-                      Error("setHeatingThermostatSetpoint() failed: " .. response.status)
-                      Error(" reported error: " .. json.encode(response.data))
+                    Error("setHeatingThermostatSetpoint() failed")
+                    handleApiError(response)
                   end
               end,
               error = function(error)
@@ -277,8 +291,8 @@ function setThermostatMode(mode)
               previousMode = mode
               Trace("setThermostatMode() succeed: " .. json.encode(response.data))
           else
-              Error("setThermostatMode() failed: " .. response.status)
-              Error("  error message: " .. json.encode(response.data))
+              Error("setThermostatMode() failed")
+              handleApiError(response)            
           end
       end,
       error = function(error)
@@ -396,8 +410,8 @@ function updateThermostatInfo()
                 findThermostat(body)
                 Trace("updateThermostatInfo() succeed: " .. json.encode(response.data))
             else
-                Error("updateThermostatInfo() failed: " .. response.status)
-                Error("  error message: " .. json.encode(response.data))
+                Error("updateThermostatInfo() failed")
+                handleApiError(response)            
                 accessToken = nil
             end
         end,
